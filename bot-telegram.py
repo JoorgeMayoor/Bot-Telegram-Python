@@ -1,50 +1,61 @@
 import requests
-from googleapiclient.discovery import build
+import time
+from datetime import datetime
 
-# Configura tus credenciales
-YOUTUBE_API_KEY = 'TU_YOUTUBE_API_KEY'
-TELEGRAM_BOT_TOKEN = 'TU_TELEGRAM_BOT_TOKEN'
-TELEGRAM_CHANNEL_ID = '@tu_canal_de_telegram'
+# Configuración
+TELEGRAM_BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+TELEGRAM_CHAT_ID = ''
+YOUTUBE_API_KEY = 'YOUR_YOUTUBE_API_KEY'
+CHANNEL_ID = 'YOUR_CHANNEL_ID'
+CHECK_INTERVAL = 300  # Intervalo de comprobación en segundos (5 minutos)
 
-# Función para obtener el último video de un canal de YouTube
-def get_latest_video(channel_id):
-    youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-    
-    # Obtener la lista de videos del canal
-    request = youtube.search().list(
-        part='snippet',
-        channelId=channel_id,
-        order='date',
-        maxResults=1
-    )
-    response = request.execute()
-    
-    # Extraer información del video
-    if response['items']:
-        video = response['items'][0]
-        video_title = video['snippet']['title']
-        video_link = f"https://www.youtube.com/watch?v={video['id']['videoId']}"
-        return video_title, video_link
-    return None, None
+def get_latest_video(channel_id, api_key):
+    """Obtiene el video más reciente de un canal de YouTube."""
+    url = f"https://www.googleapis.com/youtube/v3/search?key={api_key}&channelId={channel_id}&part=snippet,id&order=date&maxResults=1"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        if "items" in data and len(data["items"]) > 0:
+            video = data["items"][0]
+            return {
+                "video_id": video["id"].get("videoId"),
+                "title": video["snippet"].get("title"),
+                "published_at": video["snippet"].get("publishedAt")
+            }
+    return None
 
-# Función para enviar un mensaje a Telegram
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+def send_telegram_message(bot_token, chat_id, message):
+    """Envía un mensaje a un chat de Telegram."""
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
-        'chat_id': TELEGRAM_CHANNEL_ID,
-        'text': message
+        "chat_id": chat_id,
+        "text": message
     }
     response = requests.post(url, json=payload)
-    return response.json()
+    return response.status_code == 200
 
-# ID del canal de YouTube (puedes obtenerlo desde la URL del canal)
-CHANNEL_ID = 'UC_x5XG1OV2P6uZZ5FSM9Ttw'  # Reemplaza con el ID de tu canal
+def main():
+    last_video_id = None
 
-# Obtener el último video y enviar el mensaje
-video_title, video_link = get_latest_video(CHANNEL_ID)
-if video_title and video_link:
-    message = f"Nuevo video: {video_title}\nMira aquí: {video_link}"
-    send_telegram_message(message)
-    print("Mensaje enviado a Telegram.")
-else:
-    print("No se encontró ningún video.")
+    while True:
+        try:
+            latest_video = get_latest_video(CHANNEL_ID, YOUTUBE_API_KEY)
+
+            if latest_video and latest_video["video_id"] != last_video_id:
+                # Nuevo video detectado
+                last_video_id = latest_video["video_id"]
+                video_url = f"https://www.youtube.com/watch?v={last_video_id}"
+                message = f"\uD83D\uDD14 ¡Nuevo video en el canal!\n\n{latest_video['title']}\n{video_url}"
+                
+                if send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, message):
+                    print(f"[{datetime.now()}] Notificación enviada: {latest_video['title']}")
+                else:
+                    print(f"[{datetime.now()}] Error al enviar la notificación")
+
+        except Exception as e:
+            print(f"[{datetime.now()}] Error: {e}")
+
+        time.sleep(CHECK_INTERVAL)
+
+if __name__ == "__main__":
+    main()
